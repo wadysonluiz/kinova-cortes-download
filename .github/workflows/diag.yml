@@ -1,0 +1,49 @@
+name: Diagnóstico (trecho de live encerrada)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["diag.txt"]
+permissions:
+  contents: read
+jobs:
+  diag:
+    if: github.repository_owner == 'wadysonluiz'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install "yt-dlp[default]==2026.10.26"
+      - name: ferramentas (mac)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir bin && cd bin
+          curl -fsSL -o ffmpeg.zip "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
+          curl -fsSL -o deno.zip "https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip"
+          unzip -o ffmpeg.zip && unzip -o deno.zip && chmod +x ffmpeg deno && ./ffmpeg -version | head -1
+      - name: ferramentas (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force bin | Out-Null
+          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ff.zip
+          Expand-Archive ff.zip -DestinationPath ffx
+          Copy-Item (Get-ChildItem -Recurse ffx -Filter ffmpeg.exe | Select-Object -First 1).FullName bin\ffmpeg.exe
+          Invoke-WebRequest "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile deno.zip
+          Expand-Archive deno.zip -DestinationPath bin
+          bin\ffmpeg.exe -version | Select-Object -First 1
+      - name: trecho (igual ao programa)
+        shell: bash
+        run: |
+          D="deno:$PWD/bin/deno"; [ -f bin/deno.exe ] && D="deno:$PWD/bin/deno.exe"
+          python -m yt_dlp -v --no-playlist --newline --ffmpeg-location "$PWD/bin" --js-runtimes "$D" \
+            -f "bv*[height<=2160]+ba/b" -S "res,fps,br" --download-sections "*7897.00-7963.00" \
+            --merge-output-format mkv -o "t.%(ext)s" "https://www.youtube.com/watch?v=BbH-jPqd4Eo" > log.txt 2>&1 || echo "FALHOU rc=$?"
+          grep -n "Downloading 1 format\|ffmpeg command line\|ERROR\|exited" log.txt | cut -c1-600
+          echo "------ fim do log"; tail -60 log.txt | cut -c1-400
+          ls -la t.* || true
